@@ -167,63 +167,17 @@ Notice that final userC's collateral is higher than sum of collateral of both us
 
 Calculate sum of price adjustments for all pending guarantees (from latest + 1 to current), and add it to collateral when validating margined requirement.
 
-# Issue H-2: Some accounts using Intents to trade might be liquidated while healthy or be unliquidatable while being unhealthy. 
+## Discussion
 
-Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/29 
+**sherlock-admin2**
 
-## Found by 
-panprog
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/553
 
-### Summary
 
-When user trades using signed intents, pending order is created using the price specified by the user. Upon settlement, there is some pnl realized due to difference of intent price and market price. The issue is that this difference is added to account only when checking margin to add pending order, but when protection (liquidation) is validated, collateral doesn't include pending intent's pnl from the difference of intent and market price. As such, user can be unfairly liquidated if price moves against him but he has enough collateral (with pnl from pending intent orders). If there is a loss from intent price difference, then this loss is not added when checking liquidation either, thus liquidation will revert as if account is healthy.
 
-### Root Cause
 
-When protection is validated, only account's collateral is checked in `InvariantLib.validate`:
-https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/core/contracts/libs/InvariantLib.sol#L127
-
-Note that when position is opened, intent price adjustment is added to account's collateral:
-https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/core/contracts/libs/InvariantLib.sol#L92
-
-### Internal Pre-conditions
-
-- User account is close to liquidation
-- Position is opened or closed via Intent with intent price far enough from the latest oracle price (far enough - meaning the difference in price can make account safe)
-- Price moves against the user
-
-### External Pre-conditions
-
-None.
-
-### Attack Path
-
-Happens by itself (unfair user liquidation) or can be crafted by the user (avoid liquidation).
-- Margin ratio is 0.5%, maintenence ratio is 0.3%
-- Trading fee is 0.1%
-- User has `collateral = 350` and settled position of `long = 1000` at the latest oracle price of `100` (account margin ratio is `350 / (1000 * 100) = 0.35%`, very close to liquidation, but still healthy)
-- User signs intent to partially close position of the size `500` at the price of `101`.
-- The intent is sent on-chain and user now has pending position of `long = 500`. His additional profit from the intent price is `500 * (101 - 100) = 500`. 
-- Liquidator commits unrequested price of `99.9`
-- User's collateral is now `350 + 1000 * (99.9 - 100) = 250`, however since the intent is guaranteed to be executed at the price of `101`, his additional profit from the intent makes the expected margin ratio for liquidation reason = `(250 + 500) / (1000 * 100) = 0.75%`, so account should be safe.
-- However, liquidator immediately liquidates user account, because this additional profit from the intent is ignored.
-- Besides liquidation fee, upon settlement, user pays fees to close the position from liquidation, which is `500 * 100 * 0.1% = 50`, so the final user collateral is 700 instead of 750.
-- User was unfairly liquidated (as his account was healthy) and user has lost `50 / 750 = 6.7%` of his funds.
-
-### Impact
-
-- User can be unfairly and unexpectedly liquidated and lose 1%+ of his funds (because this happens only to users with low collateral and the pnl from intent price difference will mostly be small enough, the user loss relative to collateral will be above 1%).
-
-### Mitigation
-
-Calculate sum of price adjustments for all pending guarantees (from latest + 1 to current), and add it to collateral when validating if account can be protected (liquidated).
-
-Additionally, since intent updates are guaranteed and can not be invalidated, consider adding intent position updates to latest position when calculating the account health for liquidation reasons to make more fair liquidations. For example, when position is closed using intent (as in the example in the Attack Path):
-- latest = 1000
-- pending (intent) = -500
-Use position of size (1000 - 500 = 500) to calculate health when liquidating, so min collateral should be below 150 instead of 300 to be able to liquidate the account.
-
-# Issue H-3: `InvariantLib` uses current position for margin check allowing to withdraw collateral while the position decrease is only pending and can cause unexpected immediate user liquidation. 
+# Issue H-2: `InvariantLib` uses current position for margin check allowing to withdraw collateral while the position decrease is only pending and can cause unexpected immediate user liquidation. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/30 
 
@@ -385,7 +339,7 @@ Demonstrates the user who reduced position from 10 to 5, is liquidated and his c
 2. Make sure that liquidation maintenence check matches normal update margin check, so use the same position size for the check.
 
 
-# Issue H-4: Intent orders are guaranteed to execute, but fees from these orders are not accounted in collateral, allowing user to withdraw all collateral ignoring these pending fees. 
+# Issue H-3: Intent orders are guaranteed to execute, but fees from these orders are not accounted in collateral, allowing user to withdraw all collateral ignoring these pending fees. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/31 
 
@@ -588,7 +542,7 @@ Demonstrates how Attacker can use 3 accounts to generate claimable fees for free
 ### Mitigation
 The issue comes from the fact that position change is guaranteed for Intent orders, but fees are pending until price is commited and are not included in margin/maintenence check calculations. Possible mitigation is to subtract fees pending from the Intent orders (Guarantee) from the collateral in `InvariantLib` when doing margin/maintenence check.
 
-# Issue H-5: When account is liquidated (protected), liquidator can increase account's position to any value up to `2**62 - 1` breaking all market accounting and stealing all market funds. 
+# Issue H-4: When account is liquidated (protected), liquidator can increase account's position to any value up to `2**62 - 1` breaking all market accounting and stealing all market funds. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/32 
 
@@ -721,7 +675,183 @@ user pos: long = 100000000000000
 
 Require the liquidation order to only decrease position.
 
-# Issue M-1: Liquidations are temporarily blocked if user's pending position close amount is greater than the latest position size. 
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/554
+
+
+
+
+# Issue M-1: Vault.settle(account=coordinator) will lose profitShares 
+
+Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/24 
+
+## Found by 
+0x1982us
+
+### Summary
+
+`Vault.settle()` turns a portion of the profit into `profitShares` for `coordinator`.
+Use method `_credit()` to save `profitShares` to `storage`. But it doesn't update the memory variable `context.local.shares`.
+It doesn't take into account the case where `account == coordinator`.
+This way, if you maliciously specify that the settlement account is `coordinator`, `settle()` will end up overwriting the new value with the old value in memory.
+Resulting in loss of `profitShares`.
+
+### Root Cause
+
+[/Vault.sol#L390](https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/vault/contracts/Vault.sol#L390)
+`settle()` call  `_credit()`
+```solidity
+    function _settle(Context memory context, address account) private {
+...
+        while (
+            context.global.current > context.global.latest &&
+            context.latestTimestamp >= (nextCheckpoint = _checkpoints[context.global.latest + 1].read()).timestamp
+        ) {
+            // process checkpoint
+            UFixed6 profitShares;
+            (context.mark, profitShares) = nextCheckpoint.complete(
+                context.mark,
+                context.parameter,
+                _checkpointAtId(context, nextCheckpoint.timestamp)
+            );
+            context.global.shares = context.global.shares.add(profitShares);
+@=>         _credit(coordinator, profitShares);
+```
+
+in [Vault.sol#L424](https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/vault/contracts/Vault.sol#L424)
+save to storage but don't update `context.local.shares`
+```solidity
+    function _credit(address account, UFixed6 shares) internal virtual {
+        Account memory local = _accounts[account].read();
+        local.shares = local.shares.add(shares);
+@=>     _accounts[account].store(local);
+    }
+```
+
+but at the last `_saveContext()` save `context.local.shares` to storage, it will override `_credit()` value if account == coordinator
+```solidity
+    function _saveContext(Context memory context, address account) private {
+@=>     if (account != address(0)) _accounts[account].store(context.local);
+        _accounts[address(0)].store(context.global);
+        _checkpoints[context.currentId].store(context.currentCheckpoint);
+        mark = context.mark;
+    }
+```
+
+
+### Internal Pre-conditions
+
+_No response_
+
+### External Pre-conditions
+
+_No response_
+
+### Attack Path
+
+Example  context[coordinator].local.shares = 0
+
+1. anyone call `settle(account = coordinator)`
+2. suppose profitShares = 10
+3. in `_credit()` save storage `_accounts[coordinator].shares = profitShares = 10`  , but `context.local.shares` still 0
+4. at last `_saveContext()` will overwrite `_accounts[coordinator].shares = context.local.shares = 0`
+5. coordinator lose 10 shares
+
+### Impact
+
+coordinator lose `profitShares`
+
+### PoC
+
+_No response_
+
+### Mitigation
+
+like `Market.sol#_credit()`, if coordinator == context.account , only change `context.local.shares`
+
+```diff
+-   function _credit(address account, UFixed6 shares) internal virtual {
++   function _credit(Context memory context, address account, UFixed6 shares) internal virtual {
++     if (account == context.account)  context.local.shares = context.local.shares.add(shares)
++     else {
+          Account memory local = _accounts[account].read();
+          local.shares = local.shares.add(shares);
+          _accounts[account].store(local);
++     }
+    }
+```
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/563
+
+
+
+
+# Issue M-2: Some accounts using Intents to trade might be liquidated while healthy or be unliquidatable while being unhealthy. 
+
+Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/29 
+
+## Found by 
+panprog
+
+### Summary
+
+When user trades using signed intents, pending order is created using the price specified by the user. Upon settlement, there is some pnl realized due to difference of intent price and market price. The issue is that this difference is added to account only when checking margin to add pending order, but when protection (liquidation) is validated, collateral doesn't include pending intent's pnl from the difference of intent and market price. As such, user can be unfairly liquidated if price moves against him but he has enough collateral (with pnl from pending intent orders). If there is a loss from intent price difference, then this loss is not added when checking liquidation either, thus liquidation will revert as if account is healthy.
+
+### Root Cause
+
+When protection is validated, only account's collateral is checked in `InvariantLib.validate`:
+https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/core/contracts/libs/InvariantLib.sol#L127
+
+Note that when position is opened, intent price adjustment is added to account's collateral:
+https://github.com/sherlock-audit/2025-01-perennial-v2-4-update/blob/main/perennial-v2/packages/core/contracts/libs/InvariantLib.sol#L92
+
+### Internal Pre-conditions
+
+- User account is close to liquidation
+- Position is opened or closed via Intent with intent price far enough from the latest oracle price (far enough - meaning the difference in price can make account safe)
+- Price moves against the user
+
+### External Pre-conditions
+
+None.
+
+### Attack Path
+
+Happens by itself (unfair user liquidation) or can be crafted by the user (avoid liquidation).
+- Margin ratio is 0.5%, maintenence ratio is 0.3%
+- Trading fee is 0.1%
+- User has `collateral = 350` and settled position of `long = 1000` at the latest oracle price of `100` (account margin ratio is `350 / (1000 * 100) = 0.35%`, very close to liquidation, but still healthy)
+- User signs intent to partially close position of the size `500` at the price of `101`.
+- The intent is sent on-chain and user now has pending position of `long = 500`. His additional profit from the intent price is `500 * (101 - 100) = 500`. 
+- Liquidator commits unrequested price of `99.9`
+- User's collateral is now `350 + 1000 * (99.9 - 100) = 250`, however since the intent is guaranteed to be executed at the price of `101`, his additional profit from the intent makes the expected margin ratio for liquidation reason = `(250 + 500) / (1000 * 100) = 0.75%`, so account should be safe.
+- However, liquidator immediately liquidates user account, because this additional profit from the intent is ignored.
+- Besides liquidation fee, upon settlement, user pays fees to close the position from liquidation, which is `500 * 100 * 0.1% = 50`, so the final user collateral is 700 instead of 750.
+- User was unfairly liquidated (as his account was healthy) and user has lost `50 / 750 = 6.7%` of his funds.
+
+### Impact
+
+- User can be unfairly and unexpectedly liquidated and lose 1%+ of his funds (because this happens only to users with low collateral and the pnl from intent price difference will mostly be small enough, the user loss relative to collateral will be above 1%).
+
+### Mitigation
+
+Calculate sum of price adjustments for all pending guarantees (from latest + 1 to current), and add it to collateral when validating if account can be protected (liquidated).
+
+Additionally, since intent updates are guaranteed and can not be invalidated, consider adding intent position updates to latest position when calculating the account health for liquidation reasons to make more fair liquidations. For example, when position is closed using intent (as in the example in the Attack Path):
+- latest = 1000
+- pending (intent) = -500
+Use position of size (1000 - 500 = 500) to calculate health when liquidating, so min collateral should be below 150 instead of 300 to be able to liquidate the account.
+
+# Issue M-3: Liquidations are temporarily blocked if user's pending position close amount is greater than the latest position size. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/33 
 
