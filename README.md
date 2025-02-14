@@ -339,6 +339,16 @@ Demonstrates the user who reduced position from 10 to 5, is liquidated and his c
 2. Make sure that liquidation maintenence check matches normal update margin check, so use the same position size for the check.
 
 
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/565
+
+
+
+
 # Issue H-3: Intent orders are guaranteed to execute, but fees from these orders are not accounted in collateral, allowing user to withdraw all collateral ignoring these pending fees. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/31 
@@ -541,6 +551,16 @@ Demonstrates how Attacker can use 3 accounts to generate claimable fees for free
 
 ### Mitigation
 The issue comes from the fact that position change is guaranteed for Intent orders, but fees are pending until price is commited and are not included in margin/maintenence check calculations. Possible mitigation is to subtract fees pending from the Intent orders (Guarantee) from the collateral in `InvariantLib` when doing margin/maintenence check.
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/566
+
+
+
 
 # Issue H-4: When account is liquidated (protected), liquidator can increase account's position to any value up to `2**62 - 1` breaking all market accounting and stealing all market funds. 
 
@@ -851,6 +871,16 @@ Additionally, since intent updates are guaranteed and can not be invalidated, co
 - pending (intent) = -500
 Use position of size (1000 - 500 = 500) to calculate health when liquidating, so min collateral should be below 150 instead of 300 to be able to liquidate the account.
 
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/565
+
+
+
+
 # Issue M-3: Liquidations are temporarily blocked if user's pending position close amount is greater than the latest position size. 
 
 Source: https://github.com/sherlock-audit/2025-01-perennial-v2-4-update-judging/issues/33 
@@ -906,4 +936,14 @@ All liquidation attempts revert although the user should be liquidatable, thus l
 ### Mitigation
 
 Similar to crossing zero, include special check when liquidating - and if pending negative is greater than latest position, require liquidation order to be empty.
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/equilibria-xyz/perennial-v2/pull/567
+
+
+
 
